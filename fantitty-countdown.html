@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>fantitty countdown</title>
+  <style>
+    :root {
+      --bg: #0b0b0f;
+      --card: #15151c;
+      --text: #e8e8f0;
+      --muted: #a4a4b3;
+      --accent: #79ffe1;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      background: radial-gradient(1200px 800px at 50% -20%, #1f1f2a 0%, var(--bg) 60%);
+      color: var(--text);
+      display: grid; place-items: center;
+    }
+    .wrap { width: min(920px, 92vw); padding: 32px 24px; }
+    .card {
+      background: #15151c;
+      border: 1px solid #232334;
+      border-radius: 20px;
+      padding: 28px; box-shadow: 0 20px 50px rgba(0,0,0,.35);
+    }
+    h1 {
+      margin: 0 0 10px; font-size: clamp(28px, 5vw, 44px); letter-spacing: 0.5px;
+    }
+    p.tag {
+      margin: 0 0 22px; color: var(--muted); font-size: 14px;
+    }
+    .timer { display: grid; grid-template-columns: repeat(4, minmax(90px, 1fr)); gap: 14px; }
+    .unit { background: #0f0f16; border: 1px solid #252538; border-radius: 16px; padding: 16px; text-align: center; }
+    .num { font-variant-numeric: tabular-nums; font-size: clamp(34px, 7vw, 72px); line-height: 1; font-weight: 700; }
+    .label { margin-top: 8px; letter-spacing: .06em; text-transform: uppercase; font-size: 12px; color: var(--muted); }
+    .bar { height: 1px; background: linear-gradient(90deg, transparent, #2a2a3d, transparent); margin: 22px 0; border-radius: 999px; }
+    .meta { display: grid; gap: 6px; color: var(--muted); font-size: 14px; }
+    .accent { color: var(--accent); }
+    footer { margin-top: 18px; font-size: 12px; color: var(--muted); }
+
+    /* Extras */
+    .toast {position: fixed; inset: auto 0 24px 0; margin: 0 auto; width: min(780px, 92vw); background: #10101a; border: 1px solid #2a2a3d; color: var(--text); padding: 14px 16px; border-radius: 14px; box-shadow: 0 15px 35px rgba(0,0,0,.35); display: none; opacity: 0; transform: translateY(10px); transition: opacity .3s ease, transform .3s ease; }
+    .toast.show { display: block; opacity: 1; transform: translateY(0); }
+    .toast .dot { display:inline-block; width: .6em; height: .6em; background: var(--accent); border-radius: 50%; margin-right: .6em; }
+    canvas#confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    @media (max-width: 520px) { .timer { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card" role="group" aria-labelledby="title">
+      <h1 id="title">fantitty countdown</h1>
+      <p class="tag">Counting down to <span class="accent">August 31, 2025 at 12:00 PM Pacific Time</span> (PDT, UTC−7).</p>
+
+      <div class="timer" aria-live="polite" aria-atomic="true">
+        <div class="unit"><div id="days" class="num">–</div><div class="label">Days</div></div>
+        <div class="unit"><div id="hours" class="num">–</div><div class="label">Hours</div></div>
+        <div class="unit"><div id="minutes" class="num">–</div><div class="label">Minutes</div></div>
+        <div class="unit"><div id="seconds" class="num">–</div><div class="label">Seconds</div></div>
+      </div>
+
+      <div class="bar"></div>
+
+      <div class="meta">
+        <div>Current <strong>Pacific Time</strong>: <span id="now-pt">—</span></div>
+        <div>Your <strong>local time</strong>: <span id="now-local">—</span></div>
+        <div>Target instant (UTC): <code id="target-utc">—</code></div>
+      </div>
+
+      <footer>Works anywhere. Countdown is anchored to Pacific Time and uses a fixed UTC moment for accuracy.</footer>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <canvas id="confetti"></canvas>
+
+  <script>
+    // Target: Aug 31, 2025 12:00 PM Pacific Time (PDT). PDT = UTC-7 on that date.
+    const targetUTCms = Date.UTC(2025, 7, 31, 19, 0, 0); // months 0-based; 19:00 UTC == 12:00 PDT
+
+    const el = (id) => document.getElementById(id);
+    const fmt2 = new Intl.NumberFormat(undefined, { minimumIntegerDigits: 2 });
+
+    const fmtPT = new Intl.DateTimeFormat(undefined, {
+      timeZone: 'America/Los_Angeles',
+      dateStyle: 'full',
+      timeStyle: 'medium'
+    });
+    const fmtLocal = new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'full',
+      timeStyle: 'medium'
+    });
+
+    function render() {
+      const now = Date.now();
+      let diff = targetUTCms - now;
+
+      if (diff <= 0) {
+        // Countdown complete
+        el('days').textContent = '00';
+        el('hours').textContent = '00';
+        el('minutes').textContent = '00';
+        el('seconds').textContent = '00';
+        document.title = 'fantitty countdown – finished!';
+      } else {
+        const sec = Math.floor(diff / 1000);
+        const days = Math.floor(sec / 86400);
+        const hours = Math.floor((sec % 86400) / 3600);
+        const mins = Math.floor((sec % 3600) / 60);
+        const secs = sec % 60;
+
+        el('days').textContent = String(days).padStart(2, '0');
+        el('hours').textContent = fmt2.format(hours);
+        el('minutes').textContent = fmt2.format(mins);
+        el('seconds').textContent = fmt2.format(secs);
+        document.title = `fantitty countdown – ${days}d ${hours}h ${mins}m ${secs}s`;
+      }
+
+      // Clocks
+      const nowDate = new Date();
+      el('now-pt').textContent = fmtPT.format(nowDate);
+      el('now-local').textContent = fmtLocal.format(nowDate);
+      el('target-utc').textContent = new Date(targetUTCms).toISOString().replace('T', ' ').replace('Z',' UTC');
+    }
+
+    render();
+    setInterval(render, 1000);
+
+    // ---------- Confetti engine (no deps) ----------
+    const confettiCanvas = document.getElementById('confetti');
+    const ctx = confettiCanvas.getContext('2d');
+    function resizeCanvas(){ confettiCanvas.width = innerWidth; confettiCanvas.height = innerHeight; }
+    addEventListener('resize', resizeCanvas); resizeCanvas();
+
+    function confettiBurst({count=180, spread=2*Math.PI, power=12}={}){
+      const particles = [];
+      for(let i=0;i<count;i++){
+        const angle = Math.random()*spread;
+        const speed = (Math.random()*0.6+0.4)*power;
+        particles.push({
+          x: confettiCanvas.width/2,
+          y: confettiCanvas.height*0.25,
+          vx: Math.cos(angle)*speed,
+          vy: Math.sin(angle)*speed - 3,
+          g: 0.12 + Math.random()*0.06,
+          w: 5+Math.random()*6,
+          h: 8+Math.random()*10,
+          a: 1,
+          rot: Math.random()*Math.PI,
+          vr: (Math.random()-0.5)*0.3,
+          hue: Math.floor(Math.random()*360)
+        });
+      }
+      const start = performance.now();
+      function frame(now){
+        const t = (now-start)/1400; // 1.4s anim
+        ctx.clearRect(0,0,confettiCanvas.width, confettiCanvas.height);
+        particles.forEach(p=>{
+          p.vy += p.g;
+          p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.a = 1-Math.min(1,t);
+          ctx.save();
+          ctx.globalAlpha = Math.max(0,p.a);
+          ctx.translate(p.x,p.y); ctx.rotate(p.rot);
+          ctx.fillStyle = `hsl(${p.hue}, 90%, 60%)`;
+          ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);
+          ctx.restore();
+        });
+        if(t<1) requestAnimationFrame(frame); else ctx.clearRect(0,0,confettiCanvas.width, confettiCanvas.height);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    // ---------- Fantasy football hourly quips ----------
+    const quips = [
+      "Waiver wire Wednesday came early — stash that breakout RB.",
+      "PPR monsters don’t sleep. Neither should your flex decisions.",
+      "ADP is a suggestion, not a law. Draft with your gut.",
+      "Today’s ‘questionable’ tag is tomorrow’s league-winner.",
+      "Bye weeks separate champs from chumps — plan ahead.",
+      "Start your studs, bench your tilts.",
+      "Handcuffs win titles when the naps end.",
+      "Red zone targets are fantasy gold — follow the volume.",
+      "Streaming defenses? Target rookie QBs and bad lines.",
+      "Ceiling plays on Sunday, floor plays on Monday night.",
+      "Never tilt-drop a slow-start rookie WR.",
+      "Trade calculators can’t see locker-room chemistry.",
+      "Opportunity > talent > vibes (but vibes matter).",
+      "Beat the waiver rush — add before the news breaks.",
+      "Target hogs eat, decoys tweet."
+    ];
+
+    const toast = document.getElementById('toast');
+    function showQuip(){
+      const msg = quips[Math.floor(Math.random()*quips.length)];
+      toast.innerHTML = '<span class="dot"></span><strong>Fantasy note:</strong> ' + msg;
+      toast.classList.add('show');
+      setTimeout(()=> toast.classList.remove('show'), 12000);
+    }
+
+    // run immediately on load, then schedule top-of-hour cycles
+    confettiBurst({count: 120, power: 9});
+    showQuip();
+
+    function scheduleHourly(){
+      const now = new Date();
+      const next = new Date(now);
+      next.setMinutes(60,0,0); // top of next hour
+      const ms = next - now;
+      setTimeout(()=>{
+        confettiBurst({count: 160, power: 10});
+        showQuip();
+        setInterval(()=>{ confettiBurst({count: 160, power: 10}); showQuip(); }, 3600000);
+      }, ms);
+    }
+    scheduleHourly();
+
+    // Big celebration at completion
+    function checkFinish(){
+      if(Date.now() >= targetUTCms){
+        confettiBurst({count: 600, power: 16});
+        showQuip();
+        return true;
+      }
+      return false;
+    }
+    const finishWatch = setInterval(()=>{ if(checkFinish()) clearInterval(finishWatch); }, 1000);
+  </script>
+</body>
+</html>
